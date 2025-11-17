@@ -1,5 +1,5 @@
-# extract_keypoints.py
-# keypoints 추출, active 영역에서 120프레임을 추출해냄
+# extract_seq_test.py
+# 테스트 셋용 키포인트 추출 (설정값 - 경로만 다름)
 import os
 import re
 import cv2
@@ -9,8 +9,8 @@ from tqdm import tqdm
 import mediapipe as mp
 
 # ====== 설정 ======
-DATA_DIR = r"./data"         # 입력 비디오 루트
-OUT_DIR  = r"./dataset_out"  # 출력 루트
+DATA_DIR = r"./data_test"         # 입력 비디오 루트
+OUT_DIR  = r"./dataset_out_test"  # 출력 루트
 SEQ_LEN  = 120               # ✅ 영상당 고정 샘플 프레임 수 (120으로 변경)
 ANGLE_NAMES = ["D", "F", "L", "R", "U"]  # 방향 키워드
 
