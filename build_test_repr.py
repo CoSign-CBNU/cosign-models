@@ -16,6 +16,10 @@ def main():
     with open(label_map_path, "r", encoding="utf-8") as f:
         lm = json.load(f)
     label2id = lm["label2id"]   # 예: {"1":0, "2":1, ...}
+    
+    # 한글 라벨 정보 (있으면)
+    word_mapping = lm.get("word_mapping", {})
+    id2label = {int(k): v for k, v in lm["id2label"].items()}
 
     X_list = []
     y_list = []
@@ -49,6 +53,7 @@ def main():
     print("X:", X.shape)
     print("y:", y.shape)
     print("label2id:", label2id)
+    print("id2label (한글):", id2label)
 
     np.save(X_OUT_PATH, X)
     np.save(Y_OUT_PATH, y)

@@ -165,5 +165,5 @@ def debug_visualize_idle(video_path: str):
     plt.show()
 
 if __name__ == "__main__":
-    test_video = r"data/1/NIA_SL_WORD1501_REAL01_F.mp4"  # 실제 있는 파일로 바꿔줘
+    test_video = r"data/1/NIA_SL_WORD1501_REAL01_F.mp4"  # 파악할 영상 경로
     debug_visualize_idle(test_video)

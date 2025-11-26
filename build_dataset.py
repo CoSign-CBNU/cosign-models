@@ -5,9 +5,10 @@ import json
 import numpy as np
 
 DATASET_DIR = "./dataset_out"   # extract_keypoints.py가 만든 폴더
-OUT_X       = "X_seq.npy"       # (N, 120, feat_dim)
+OUT_X       = "X_seq.npy"       # (N, 60, feat_dim)
 OUT_Y       = "y.npy"           # (N,)
 OUT_LABELS  = "label_map.json"  # 라벨 <-> id 매핑
+WORD_LABELS = "./word_labels.json"  # 숫자 라벨 -> 한글 단어 매핑
 
 def main():
     label_dirs = [
@@ -20,9 +21,17 @@ def main():
         print("⚠ label 폴더가 없습니다. dataset_out 구조를 확인하세요.")
         return
 
+    # 한글 라벨 매핑 로드 (선택적)
+    word_mapping = {}
+    if os.path.exists(WORD_LABELS):
+        with open(WORD_LABELS, "r", encoding="utf-8") as f:
+            word_mapping = json.load(f)
+        print(f"✅ 한글 라벨 매핑 로드: {WORD_LABELS}")
+    
     # 폴더 이름을 라벨 id로 매핑
     label2id = {label: idx for idx, label in enumerate(label_dirs)}
-    id2label = {idx: label for label, idx in label2id.items()}
+    # 한글 매핑이 있으면 한글로, 없으면 숫자 그대로
+    id2label = {idx: word_mapping.get(label, label) for label, idx in label2id.items()}
 
     X_list = []
     y_list = []
@@ -74,6 +83,7 @@ def main():
             {
                 "label2id": label2id,
                 "id2label": {str(k): v for k, v in id2label.items()},
+                "word_mapping": word_mapping,  # 한글 매핑 정보 저장
                 "n_samples": int(X.shape[0]),
                 "seq_len": int(X.shape[1]),
                 "feat_dim": int(X.shape[2]),
