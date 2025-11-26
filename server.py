@@ -18,6 +18,11 @@ IDLE_VEL_THR = 0.018
 MIN_ACTIVE_FRAMES = 10
 IDLE_END_N = 5
 
+# 오인식 방지 파라미터
+MIN_CONFIDENCE = 0.33       # 최소 신뢰도
+COOLDOWN_TIME = 0.8        # 인식 후 대기 시간 (초)
+STABLE_IDLE_COUNT = 5     # 다음 인식 가능하려면 필요한 idle 프레임 수
+
 MAX_HANDS = 2
 USE_BODY = True
 USE_ELBOWS = True
@@ -291,13 +296,19 @@ async def websocket_recognize(websocket: WebSocket):
     print("🔌 WebSocket 연결됨")
 
     # 상태 변수
-    state = "idle"
+    state = "idle"  # "idle", "active", "cooldown"
     active_feats = []
     idle_count = 0
     prev_lw = None
     prev_rw = None
     feat_dim = compute_feat_dim()
+    
+    # 쿨다운 관리
+    last_decision_time = 0
+    stable_idle_count = 0
+    last_result = None
     try:
+        import time
         while True:
             # 프레임 수신 (base64 인코딩된 이미지)
             data = await websocket.receive_json()
@@ -325,10 +336,36 @@ async def websocket_recognize(websocket: WebSocket):
                 hands_results, pose_results, prev_lw, prev_rw, feat_dim
             )
 
+            current_time = time.time()
+
             # 상태머신
             response = {"state": state, "vmag": vmag}
+            
+            # 마지막 결과 유지
+            if last_result:
+                response["last_result"] = last_result
 
-            if state == "idle":
+            if state == "cooldown":
+                # 쿨다운 중: 손이 내려가고 안정화될 때까지 대기
+                time_since_decision = current_time - last_decision_time
+                
+                if vmag < IDLE_VEL_THR:
+                    stable_idle_count += 1
+                else:
+                    stable_idle_count = 0
+                
+                response["cooldown_remaining"] = max(0, COOLDOWN_TIME - time_since_decision)
+                response["stable_count"] = f"{stable_idle_count}/{STABLE_IDLE_COUNT}"
+                
+                # 쿨다운 완료 조건
+                if time_since_decision >= COOLDOWN_TIME and stable_idle_count >= STABLE_IDLE_COUNT:
+                    state = "idle"
+                    stable_idle_count = 0
+                    response["state"] = "idle"
+                    response["message"] = "대기 완료"
+                    print("🔄 쿨다운 완료 -> idle")
+            
+            elif state == "idle":
                 if vmag >= IDLE_VEL_THR:
                     state = "active"
                     active_feats = [feat]
@@ -361,20 +398,41 @@ async def websocket_recognize(websocket: WebSocket):
                         label = id2label[pred_id]
                         confidence = float(probs[pred_id])
 
-                        response["result"] = {
-                            "text": label,
-                            "confidence": confidence,
-                        }
-                        print(f"✅ 인식 결과: {label} ({confidence:.3f})")
+                        # 신뢰도 필터링
+                        if confidence >= MIN_CONFIDENCE:
+                            result = {
+                                "text": label,
+                                "confidence": confidence,
+                            }
+                            response["result"] = result
+                            last_result = result
+                            last_decision_time = current_time
+                            state = "cooldown"
+                            stable_idle_count = 0
+                            response["state"] = "cooldown"
+                            response["low_confidence"] = False
+                            print(f"✅ 인식 완료: {label} ({confidence:.3f}) -> 쿨다운")
+                        else:
+                            # 낮은 신뢰도 결과도 전송하되 low_confidence 플래그 포함
+                            result = {
+                                "text": label,
+                                "confidence": confidence,
+                            }
+                            response["result"] = result
+                            response["low_confidence"] = True
+                            response["message"] = f"낮은 신뢰도: {label} ({confidence:.3f})"
+                            state = "idle"
+                            response["state"] = "idle"
+                            print(f"⚠️ 낮은 신뢰도: {label} ({confidence:.3f})")
+                    else:
+                        response["message"] = f"프레임 부족 ({len(active_feats)}/{MIN_ACTIVE_FRAMES})"
+                        state = "idle"
+                        response["state"] = "idle"
+                        print(f"⚠️ 프레임 수 부족")
 
-                    # idle로 전환 시 손목 위치 초기화 (다음 동작 빠른 감지)
-                    state = "idle"
+                    # active 데이터 초기화
                     active_feats = []
                     idle_count = 0
-                    prev_lw = None
-                    prev_rw = None
-                    response["state"] = "idle"
-                    print(f"⚪ Idle로 전환")
                     
             # 응답 전송
             await websocket.send_json(response)

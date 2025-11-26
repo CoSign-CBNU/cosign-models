@@ -25,6 +25,11 @@ IDLE_VEL_THR      = 0.020  # 손목 속도 임계값
 MIN_ACTIVE_FRAMES = 10    # 최소 active 프레임 수
 IDLE_END_N        = 5      # 연속 idle 프레임 수 ≥ IDLE_END_N 이면 수어 종료로 판단
 
+# 오인식 방지 파라미터
+MIN_CONFIDENCE    = 0.35    # 최소 신뢰도 (이 값 이하는 무시)
+COOLDOWN_TIME     = 1.0    # 인식 후 대기 시간 (초)
+STABLE_IDLE_COUNT = 5     # 다음 인식 가능하려면 필요한 idle 프레임 수
+
 # ===== extract_keypoints.py와 동일한 피처 설정 =====
 MAX_HANDS        = 2     # 양손 처리
 USE_BODY         = True  # 상체 피처 사용
@@ -324,7 +329,7 @@ def main():
     feat_dim = compute_feat_dim()
 
     # idle/active 상태 관리용 변수들
-    state = "idle"   # "idle" 또는 "active"
+    state = "idle"   # "idle", "active", "cooldown"
     active_feats = []
     idle_count = 0
     prev_lw = None
@@ -332,6 +337,15 @@ def main():
 
     last_label = None
     last_prob  = 0.0
+    
+    # 쿨다운 관리
+    last_decision_time = 0  # 마지막 인식 시각
+    stable_idle_count = 0   # 쿨다운 중 안정적인 idle 카운트
+    
+    # 경고 메시지 표시
+    warning_message = None
+    warning_time = 0
+    WARNING_DURATION = 2.0  # 경고 메시지 표시 시간 (초)
 
     prev_time = time.time()
 
@@ -367,13 +381,32 @@ def main():
             hands_results, pose_results, prev_lw, prev_rw, feat_dim
         )
 
-        # ===== idle / active 상태머신 =====
-        if state == "idle":
+        current_time = time.time()
+
+        # ===== idle / active / cooldown 상태머신 =====
+        if state == "cooldown":
+            # 쿨다운 중: 손이 내려가고 안정화될 때까지 대기
+            time_since_decision = current_time - last_decision_time
+            
+            if vmag < IDLE_VEL_THR:
+                stable_idle_count += 1
+            else:
+                stable_idle_count = 0  # 움직임 감지되면 카운트 리셋
+            
+            # 쿨다운 시간이 지나고 충분히 안정화되면 idle로 전환
+            if time_since_decision >= COOLDOWN_TIME and stable_idle_count >= STABLE_IDLE_COUNT:
+                state = "idle"
+                stable_idle_count = 0
+                print("🔄 쿨다운 완료 -> idle 상태로 전환")
+                
+        elif state == "idle":
             if vmag >= IDLE_VEL_THR:
                 # 수어 시작
                 state = "active"
                 active_feats = [feat]
                 idle_count = 0
+                print("▶️ 수어 동작 감지 -> active 상태")
+                
         elif state == "active":
             active_feats.append(feat)
 
@@ -393,13 +426,29 @@ def main():
 
                     probs = clf.predict_proba(x)[0]
                     pred_id = int(np.argmax(probs))
-                    last_label = id2label[pred_id]
-                    last_prob  = float(probs[pred_id])
+                    confidence = float(probs[pred_id])
+                    predicted_label = id2label[pred_id]
 
-                    print(f"✅ DECISION: {last_label} ({last_prob:.3f})")
+                    # 신뢰도 필터링
+                    if confidence >= MIN_CONFIDENCE:
+                        last_label = predicted_label
+                        last_prob  = confidence
+                        last_decision_time = current_time
+                        state = "cooldown"
+                        stable_idle_count = 0
+                        warning_message = None  # 경고 초기화
+                        print(f"✅ 인식 완료: {last_label} ({last_prob:.3f}) -> 쿨다운 시작")
+                    else:
+                        # 낮은 신뢰도 경고
+                        warning_message = f"신뢰도 낮음! 다시 시도해주세요 ({confidence:.1%})"
+                        warning_time = current_time
+                        state = "idle"
+                        print(f"⚠️ 낮은 신뢰도로 무시: {predicted_label} ({confidence:.3f})")
+                else:
+                    print(f"⚠️ 프레임 수 부족 ({len(active_feats)} < {MIN_ACTIVE_FRAMES}) -> idle")
+                    state = "idle"
 
-                # 상태 초기화
-                state = "idle"
+                # active 데이터 초기화
                 active_feats = []
                 idle_count = 0
 
@@ -410,13 +459,21 @@ def main():
 
         # ===== 화면 표시 (한글 지원) =====
         y0 = 30
-        # 상태
+        
+        # 상태 및 쿨다운 정보
+        status_text = f"상태: {state}"
+        if state == "cooldown":
+            remaining = COOLDOWN_TIME - (current_time - last_decision_time)
+            status_text += f" (대기: {max(0, remaining):.1f}초, idle: {stable_idle_count}/{STABLE_IDLE_COUNT})"
+        else:
+            status_text += f" (vmag={vmag:.3f})"
+            
         frame = put_korean_text(
             frame,
-            f"상태: {state} (vmag={vmag:.3f})",
+            status_text,
             (10, y0),
             font_size=20,
-            color=(0, 255, 255)
+            color=(0, 255, 255) if state != "cooldown" else (100, 100, 255)
         )
         y0 += 30
 
@@ -430,6 +487,17 @@ def main():
                 color=(0, 255, 0)
             )
             y0 += 40
+        
+        # 경고 메시지 표시 (일정 시간 동안만)
+        if warning_message and (current_time - warning_time) < WARNING_DURATION:
+            frame = put_korean_text(
+                frame,
+                warning_message,
+                (10, y0),
+                font_size=24,
+                color=(0, 0, 255)  # 빨간색
+            )
+            y0 += 35
 
         # FPS
         cv2.putText(
