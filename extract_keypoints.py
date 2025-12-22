@@ -11,7 +11,7 @@ import mediapipe as mp
 # ====== 설정 ======
 DATA_DIR = r"./data"         # 입력 비디오 루트
 OUT_DIR  = r"./dataset_out"  # 출력 루트
-SEQ_LEN  = 60               # ✅ 영상당 고정 샘플 프레임 수 (120으로 변경)
+SEQ_LEN  = 60               # ✅ 영상당 고정 샘플 프레임 수 (60으로 변경)
 ANGLE_NAMES = ["D", "F", "L", "R", "U"]  # 방향 키워드
 
 # 피처 구성 플래그

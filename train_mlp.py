@@ -1,14 +1,13 @@
-# train_logistic_all.py
-# logistic regression사용
-# AI hub 제공 + 노트북 카메라 촬영 영상 등, dataset_out 하나만 사용
-# 5-fold로 전체 데이터셋 교차검증(tr/test 분리 X)
-
+# train_mlp_all.py
+# MLP사용
+# AI hub 제공 5개 영상 + 노트북 카메라 촬영 영상으로 라벨 학습
+# 5-fold로 전체 데이터셋 교차검증(tr/ts 분리 X)
 import os
 import json
 import numpy as np
 import joblib
 
-from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import (
     accuracy_score,
@@ -27,27 +26,28 @@ LABEL_MAP_PATH = os.path.join(TRAIN_DATASET_DIR, "label_map.json")
 
 
 def create_model():
-    return LogisticRegression(
-        penalty="elasticnet",
-        l1_ratio=0.5,       # L1/L2 비중 (0~1, 0=L2, 1=L1)
-        solver="saga",      # elasticnet은 saga에서만 지원됨
-        max_iter=5000,
-        C=1.0,
-        multi_class="auto",
+    return MLPClassifier(
+        hidden_layer_sizes=(128,),
+        activation="relu",
+        solver="adam",
+        alpha=1e-4,
+        learning_rate_init=1e-3,
+        max_iter=2000,
+        random_state=42,
     )
 
 
 def load_data():
     # X: (N, SEQ_LEN, FEAT_DIM)
-    X = np.load(X_PATH)   # (N, T, F)
-    y = np.load(Y_PATH)   # (N,)
+    X = np.load(X_PATH)  # (N, T, F)
+    y = np.load(Y_PATH)  # (N,)
 
     # label_map 로드 (id2label → 정수 키로 변환)
     with open(LABEL_MAP_PATH, "r", encoding="utf-8") as f:
         lm = json.load(f)
 
-    label2id = lm["label2id"]                      # 예: {"1":0, "2":1, ...}
-    id2label = {int(k): v for k, v in lm["id2label"].items()}  # 예: {0:"1", 1:"2", ...}
+    label2id = lm["label2id"]                      # 예: {"운전면허":0, ...}
+    id2label = {int(k): v for k, v in lm["id2label"].items()}  # 예: {0:"운전면허", ...}
 
     print("=== Loaded dataset (ONLY dataset_out) ===")
     print(f"X shape: {X.shape}  (N, SEQ_LEN, FEAT_DIM)")
@@ -147,12 +147,12 @@ def main():
         f"Mean F1-Score     : {fold_f1s.mean():.4f} (+/- {fold_f1s.std():.4f})"
     )
 
-    # 전체 데이터로 최종 모델 학습 + 저장
+    # (선택) 전체 데이터로 최종 모델 학습 + 저장
     print("\n=== Train final model on ALL samples & save ===")
     final_clf = base_clf
     final_clf.fit(X_flat, y)
 
-    model_path = os.path.join(TRAIN_DATASET_DIR, "logistic_model_all.pkl")
+    model_path = os.path.join(TRAIN_DATASET_DIR, "mlp_model_all.pkl")
     joblib.dump(final_clf, model_path)
     print(f"✅ Final model saved to: {model_path}")
 

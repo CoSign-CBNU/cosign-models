@@ -1,4 +1,5 @@
-# realtime_sign.py
+# realtime_sign2.py
+# linearsvc용
 import cv2
 import numpy as np
 import mediapipe as mp
@@ -17,18 +18,18 @@ if sys.platform == 'win32':
 # ===== 설정 =====
 SEQ_LEN         = 60   # 학습 때 쓰던 시퀀스 길이 (리샘플링 길이)
 CAM_INDEX       = 0     # 웹캠 번호
-MODEL_PATH      = "./dataset_out/linearsvc_calibrated.pkl"   # 모델 경로
-LABEL_MAP_PATH  = "./dataset_out/label_map.json"     # label_map.json 경로
+MODEL_PATH      = "./dataset_out/linearsvc_model.pkl"   # 모델 경로
+LABEL_MAP_PATH  = "./dataset_out/label_map.json"        # label_map.json 경로
 
 # idle/active 판별 파라미터 (extract_keypoints.py와 맞춤)
-IDLE_VEL_THR      = 0.018  # 손목 속도 임계값
-MIN_ACTIVE_FRAMES = 10    # 최소 active 프레임 수
+IDLE_VEL_THR      = 0.020  # 손목 속도 임계값
+MIN_ACTIVE_FRAMES = 10     # 최소 active 프레임 수
 IDLE_END_N        = 5      # 연속 idle 프레임 수 ≥ IDLE_END_N 이면 수어 종료로 판단
 
 # 오인식 방지 파라미터
-MIN_CONFIDENCE    = 0.15    # 최소 신뢰도 (이 값 이하는 무시)
+MIN_CONFIDENCE    = 0.15   # 최소 신뢰도 (이 값 이하는 무시)
 COOLDOWN_TIME     = 1.0    # 인식 후 대기 시간 (초)
-STABLE_IDLE_COUNT = 5     # 다음 인식 가능하려면 필요한 idle 프레임 수
+STABLE_IDLE_COUNT = 5      # 다음 인식 가능하려면 필요한 idle 프레임 수
 
 # ===== extract_keypoints.py와 동일한 피처 설정 =====
 MAX_HANDS        = 2     # 양손 처리
@@ -268,7 +269,6 @@ def extract_feature_and_speed(hands_results, pose_results,
 
     return feat, float(vmag), lw_abs, rw_abs
 
-# ===== 메인 =====
 # ===== 한글 텍스트 표시 함수 =====
 def put_korean_text(img, text, pos, font_size=25, color=(255, 255, 255)):
     """PIL을 사용하여 한글 텍스트를 이미지에 표시"""
@@ -424,7 +424,19 @@ def main():
                     seq_fix = seq[idxs]                  # (60, feat_dim)
                     x = seq_fix.reshape(1, -1)           # (1, 60*feat_dim)
 
-                    probs = clf.predict_proba(x)[0]
+                    # ===== LinearSVC 대응: predict_proba 없으면 decision_function + softmax 사용 =====
+                    if hasattr(clf, "predict_proba"):
+                        probs = clf.predict_proba(x)[0]
+                    else:
+                        scores = clf.decision_function(x)  # (1, n_classes) 또는 (n_classes,)
+                        scores = np.asarray(scores)
+                        if scores.ndim == 1:
+                            scores = scores.reshape(1, -1)
+
+                        shifted = scores[0] - np.max(scores[0])
+                        exp_scores = np.exp(shifted)
+                        probs = exp_scores / np.sum(exp_scores)
+
                     pred_id = int(np.argmax(probs))
                     confidence = float(probs[pred_id])
                     predicted_label = id2label[pred_id]

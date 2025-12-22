@@ -9,9 +9,9 @@ import json
 import base64
 from typing import Optional
 
-# ===== 설정 (realtime_sign2.py와 동일) =====
+# ===== 설정 (realtime_sign.py와 동일) =====
 SEQ_LEN = 60
-MODEL_PATH = "./dataset_out/rf_model_all.pkl"
+MODEL_PATH = "./dataset_out/linearsvc_calibrated.pkl"
 LABEL_MAP_PATH = "./dataset_out/label_map.json"
 
 IDLE_VEL_THR = 0.018
@@ -19,8 +19,8 @@ MIN_ACTIVE_FRAMES = 10
 IDLE_END_N = 5
 
 # 오인식 방지 파라미터
-MIN_CONFIDENCE = 0.33       # 최소 신뢰도
-COOLDOWN_TIME = 0.8        # 인식 후 대기 시간 (초)
+MIN_CONFIDENCE = 0.15       # 최소 신뢰도
+COOLDOWN_TIME = 0.5        # 인식 후 대기 시간 (초)
 STABLE_IDLE_COUNT = 5     # 다음 인식 가능하려면 필요한 idle 프레임 수
 
 MAX_HANDS = 2
@@ -402,7 +402,6 @@ async def websocket_recognize(websocket: WebSocket):
                         if confidence >= MIN_CONFIDENCE:
                             result = {
                                 "text": label,
-                                "confidence": confidence,
                             }
                             response["result"] = result
                             last_result = result
@@ -416,7 +415,6 @@ async def websocket_recognize(websocket: WebSocket):
                             # 낮은 신뢰도 결과도 전송하되 low_confidence 플래그 포함
                             result = {
                                 "text": label,
-                                "confidence": confidence,
                             }
                             response["result"] = result
                             response["low_confidence"] = True
